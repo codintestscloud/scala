@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/scala_8156.iml" filepath="$PROJECT_DIR$/.idea/modules/scala_8156.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/scala_8156-build.iml" filepath="$PROJECT_DIR$/.idea/modules/scala_8156-build.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/maze.iml" filepath="$PROJECT_DIR$/.idea/modules/maze.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/maze-build.iml" filepath="$PROJECT_DIR$/.idea/modules/maze-build.iml" />
     </modules>
   </component>
 </project>
