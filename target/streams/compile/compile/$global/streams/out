@@ -1,4 +1,0 @@
-[0m[[0m[31merror[0m] [0m[0m/Users/grufino/Downloads/soundcloud-followermaze-refactoring-challenge-v6/scala/src/main/scala/com/soundcloud/maze/Events.scala:6:8: value writeAction is not a member of object com.soundcloud.maze.EventsOrchestration[0m
-[0m[[0m[31merror[0m] [0m[0mimport com.soundcloud.maze.EventsOrchestration.writeAction[0m
-[0m[[0m[31merror[0m] [0m[0m       ^[0m
-[0m[[0m[31merror[0m] [0m[0mone error found[0m

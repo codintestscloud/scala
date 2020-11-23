@@ -1,17 +1,20 @@
 package com.soundcloud.maze
 
-import java.io._
-import java.net.{ServerSocket, Socket}
+import java.net.Socket
+import java.util.concurrent.Executors
+
+import com.soundcloud.maze.clients.ClientsListener
+import com.soundcloud.maze.events.EventsListener
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.io.Source
-import scala.util.{Failure, Success, Try}
-import scala.collection.JavaConverters._
 
 object Main {
+
+  val eventsThreadPoolSize = 2
+  val clientsThreadPoolSize = 2
 
   def main(args: Array[String]): Unit = {
 
@@ -20,12 +23,13 @@ object Main {
     val messagesBySeqNo = new mutable.HashMap[Long, List[String]]
     val followRegistry = new mutable.HashMap[Long, Set[Long]]
 
-    implicit val ec = ExecutionContext.global
+    val eventsEc = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(eventsThreadPoolSize))
+    val clientsEc = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(clientsThreadPoolSize))
 
-      val events = new Events(clientPool, messagesBySeqNo, followRegistry).getEventsAsync()
-      val clients = EventsOrchestration.clientsAsync(clientPool)
+    val events = new EventsListener(clientPool, messagesBySeqNo, followRegistry)(eventsEc).getEventsAsync()
+    val clients = new ClientsListener(clientPool)(clientsEc).getClientsAsync()
 
-    Await.result(events, Duration.Inf)
+    Await.ready(events, Duration.Inf)
     Await.result(clients, Duration.Inf)
   }
 }
