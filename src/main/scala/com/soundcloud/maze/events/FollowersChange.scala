@@ -2,42 +2,68 @@ package main.scala.com.soundcloud.maze.events
 
 import java.net.Socket
 
-import com.soundcloud.maze.events.{EventAction, EventWriter}
+import com.soundcloud.maze.events.{EventAction, EventHelper}
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
+import scala.util.{Failure, Success, Try}
 
 trait FollowersChange extends EventAction {
-  val fromUserId = nextMessage(2).toLong
-  val toUserId = nextMessage(3).toLong
-  val followers = followRegistry.getOrElse(toUserId, Set.empty)
-  val newFollowers: Set[Long]
+  val tryFromUserId = Try {
+    nextMessage(2).toLong
+  }
+  val tryToUserId = Try {
+    nextMessage(3).toLong
+  }
+  val tryFollowers = tryToUserId.map(toUserId => {
+    followRegistry.getOrElse(toUserId, Set.empty)
+  })
 
-  def putNewFollowers(): Unit = {
+  def putNewFollowers(toUserId: Long, newFollowers: Set[Long]): Unit = {
     followRegistry.put(toUserId, newFollowers)
   }
 }
 
-case class Follow(override val nextMessage: List[String],
-                  override val followRegistry: mutable.HashMap[Long, Set[Long]],
-                  override val clientPool: TrieMap[Long, Socket],
-                  override val nextPayload: String) extends FollowersChange {
-  val newFollowers = followers + fromUserId
+class Follow(override val nextMessage: List[String],
+             override val followRegistry: mutable.HashMap[Long, Set[Long]],
+             override val clientPool: TrieMap[Long, Socket],
+             override val nextPayload: String) extends FollowersChange {
+  override def execute(): Either[String, Unit] = {
+    val tryResolution = for {
+      followers <- tryFollowers
+      fromUserId <- tryFromUserId
+      toUserId <- tryToUserId
+    } yield (toUserId, followers + fromUserId)
 
-  override def execute() = {
-    putNewFollowers()
-
-    clientPool.get(toUserId).foreach(socket => EventWriter.writeToSocket(socket, nextPayload))
+    tryResolution match {
+      case Failure(_) => Left(EventHelper.malformedInput(nextPayload))
+      case Success((toUserId, newFollowers)) => {
+        putNewFollowers(toUserId, newFollowers)
+        clientPool.get(toUserId) match {
+          case Some(socket) => Right(EventHelper.writeToSocket(socket, nextPayload))
+          case None => Left(EventHelper.unexistingClient(toUserId, nextPayload))
+        }
+      }
+    }
   }
 }
 
-case class Unfollow(override val nextMessage: List[String],
-                    override val followRegistry: mutable.HashMap[Long, Set[Long]],
-                    override val clientPool: TrieMap[Long, Socket],
-                    override val nextPayload: String) extends FollowersChange {
-  val newFollowers = followers - fromUserId
+class Unfollow(override val nextMessage: List[String],
+               override val followRegistry: mutable.HashMap[Long, Set[Long]],
+               override val clientPool: TrieMap[Long, Socket],
+               override val nextPayload: String) extends FollowersChange {
+  override def execute(): Either[String, Unit] = {
+        val tryResolution = for {
+          followers <- tryFollowers
+          fromUserId <- tryFromUserId
+          toUserId <- tryToUserId
+        } yield (toUserId, followers - fromUserId)
 
-  override def execute() = {
-    putNewFollowers()
+        tryResolution match {
+          case Failure(_) => Left(EventHelper.malformedInput(nextPayload))
+          case Success((toUserId, newFollowers)) => {
+            Right(putNewFollowers(toUserId, newFollowers))
+          }
+        }
   }
 }

@@ -1,10 +1,10 @@
 package com.soundcloud.maze.events
 
-import java.io.{BufferedWriter, OutputStreamWriter}
 import java.net.Socket
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
+import scala.util.{Failure, Success, Try}
 
 trait EventAction {
   val clientPool: TrieMap[Long, Socket]
@@ -12,44 +12,67 @@ trait EventAction {
   val nextMessage: List[String]
   val followRegistry: mutable.HashMap[Long, Set[Long]]
 
-  def execute(): Unit
-
-  lazy val success = Right("Success")
-
+  def execute(): Either[String, Unit]
 }
 
-case class PrivateMessage(override val nextMessage: List[String],
-                          override val followRegistry: mutable.HashMap[Long, Set[Long]],
-                          override val clientPool: TrieMap[Long, Socket],
-                          override val nextPayload: String) extends EventAction {
-  val toUserId = nextMessage(3).toLong
-
-  def execute() {
-    clientPool.get(toUserId).foreach ( socket => EventWriter.writeToSocket(socket, nextPayload))
-  }
-}
-
-case class Broadcast(override val nextMessage: List[String],
+class PrivateMessage(override val nextMessage: List[String],
                      override val followRegistry: mutable.HashMap[Long, Set[Long]],
                      override val clientPool: TrieMap[Long, Socket],
                      override val nextPayload: String) extends EventAction {
+  override def execute(): Either[String, Unit] = {
+    val parseUserId = Try {
+      nextMessage(3).toLong
+    }
 
-  def execute() {
-    clientPool.values.foreach (socket => EventWriter.writeToSocket(socket, nextPayload))
+    parseUserId match {
+      case Success(toUserId) => clientPool.get(toUserId) match {
+        case Some(socket) => Right(EventHelper.writeToSocket(socket, nextPayload))
+        case None =>Left(EventHelper.unexistingClient(toUserId, nextPayload))
+      }
+      case Failure(_) => Left(EventHelper.malformedInput(nextPayload))
+    }
   }
 }
 
-case class StatusUpdate(override val nextMessage: List[String],
-                        override val followRegistry: mutable.HashMap[Long, Set[Long]],
-                        override val clientPool: TrieMap[Long, Socket],
-                        override val nextPayload: String) extends EventAction {
-  val fromUserId = nextMessage(2).toLong
-  val followers = followRegistry.getOrElse(fromUserId, Set.empty)
+class Broadcast(override val nextMessage: List[String],
+                override val followRegistry: mutable.HashMap[Long, Set[Long]],
+                override val clientPool: TrieMap[Long, Socket],
+                override val nextPayload: String) extends EventAction {
 
-  def execute() {
-    followers.foreach { follower =>
-      clientPool.get(follower).foreach (socket => EventWriter.writeToSocket(socket, nextPayload))
+  override def execute(): Either[String, Unit] = {
+    Right(clientPool.values.foreach(socket => EventHelper.writeToSocket(socket, nextPayload)))
+  }
+}
+
+class StatusUpdate(override val nextMessage: List[String],
+                   override val followRegistry: mutable.HashMap[Long, Set[Long]],
+                   override val clientPool: TrieMap[Long, Socket],
+                   override val nextPayload: String) extends EventAction {
+  override def execute(): Either[String, Unit] = {
+    val parseUserId = Try {
+      nextMessage(2).toLong
     }
+
+    parseUserId match {
+      case Success(fromUserId) => {
+        val followers = followRegistry.getOrElse(fromUserId, Set.empty)
+        Right(followers.foreach { follower =>
+          clientPool.get(follower).foreach(socket => EventHelper.writeToSocket(socket, nextPayload))
+        })
+      }
+      case Failure(_) => Left(EventHelper.malformedInput(nextPayload))
+    }
+  }
+}
+
+class UnsupportedKind(override val nextMessage: List[String],
+                      override val followRegistry: mutable.HashMap[Long, Set[Long]],
+                      override val clientPool: TrieMap[Long, Socket],
+                      override val nextPayload: String,
+                      val kind: String) extends EventAction {
+
+  def execute() = {
+    Left(s"Unsupported type: $kind, original message: $nextMessage")
   }
 
 }

@@ -8,6 +8,7 @@ import main.scala.com.soundcloud.maze.events.{Follow, Unfollow}
 import scala.collection.JavaConverters.asScalaIteratorConverter
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
@@ -21,28 +22,33 @@ class EventsListener(clientPool: TrieMap[Long, Socket], messagesBySeqNo: mutable
     Future {
       println(s"Listening for events on $EventPort")
       val eventSocket = new ServerSocket(EventPort).accept()
-
-      val exec = Try {
+      Try {
         val reader = new BufferedReader(new InputStreamReader(eventSocket.getInputStream()))
 
-        reader.lines().iterator().asScala.foreach(sendMessage)
+        val results =
+          reader
+          .lines()
+          .iterator()
+          .asScala
+            .map(sendMessage)
+            .toList
+            .flatten
+
+        results.map(DeadLetter.publish)
 
         if (reader != null) reader.close()
+        if (eventSocket != null) eventSocket.close()
       }
-
-      exec match {
-        case Success(value) => println(s"Success event listening execution! value: $value")
-        case Failure(value) => println(s"Failed event listening execution! value: $value")
-      }
-      if (eventSocket != null) eventSocket.close()
     }
   }
 
-  def sendMessage(payload: String) = {
+  def sendMessage(payload: String): ListBuffer[String] = {
     println(s"Message received: $payload")
     val message = payload.split("\\|").toList
 
     messagesBySeqNo += message(0).toLong -> message
+
+    var errorResults = ListBuffer[String]()
 
     while (messagesBySeqNo.get(lastSeqNo + 1L).isDefined) {
       val nextMessage = messagesBySeqNo(lastSeqNo + 1)
@@ -53,18 +59,18 @@ class EventsListener(clientPool: TrieMap[Long, Socket], messagesBySeqNo: mutable
       val kind = nextMessage(1)
 
       val executableAction: EventAction = kind match {
-        case "F" => Follow(nextMessage, followRegistry, clientPool, nextPayload)
-        case "U" => Unfollow(nextMessage, followRegistry, clientPool, nextPayload)
-        case "P" => PrivateMessage(nextMessage, followRegistry, clientPool, nextPayload)
-        case "B" => Broadcast(nextMessage, followRegistry, clientPool, nextPayload)
-        case "S" => StatusUpdate(nextMessage, followRegistry, clientPool, nextPayload)
+        case "F" => new Follow(nextMessage, followRegistry, clientPool, nextPayload)
+        case "U" => new Unfollow(nextMessage, followRegistry, clientPool, nextPayload)
+        case "P" => new PrivateMessage(nextMessage, followRegistry, clientPool, nextPayload)
+        case "B" => new Broadcast(nextMessage, followRegistry, clientPool, nextPayload)
+        case "S" => new StatusUpdate(nextMessage, followRegistry, clientPool, nextPayload)
+        case unsupported => new UnsupportedKind(nextMessage, followRegistry, clientPool, nextPayload, unsupported)
       }
 
+      executableAction.execute().left.map(error => errorResults += error)
       lastSeqNo = seqNo
-
-      executableAction.execute()
-
     }
+    errorResults
   }
 
 }
